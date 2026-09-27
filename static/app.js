@@ -14,11 +14,13 @@ const KIND_ICON = [
 ];
 const RISKY_KINDS = new Set(['keyboard', 'network', 'dfu']);
 const THEMES = ['auto', 'light', 'dark'];
+const TABS = ['devices', 'activity', 'incidents', 'known'];
 
 const state = {
   devices: {}, events: [], known: [], knownLoaded: false,
   tab: 'devices', level: 'info', query: '',
   drawerId: null, drawerDev: null, probes: {},
+  incidents: [], incidentId: null, incidentTimer: null,
   fresh: new Map(), notify: false, theme: 'auto', lastBannerDev: null,
 };
 
@@ -102,6 +104,7 @@ async function loadStatus() {
       [c.screen_lock ? 'screen-lock detection' : 'no screen-lock detection', c.screen_lock ? 'ok' : 'off'],
       [c.probe.ok ? 'libusb probe ready' : `probe: ${c.probe.message}`, c.probe.ok ? 'ok' : 'off'],
     ];
+    if (c.logs) { items.push([`logs: ${c.logs}`, '']); $('logs-path').textContent = c.logs; }
     $('sysinfo').innerHTML = items.map(([t, cls]) =>
       `<span class="${cls}">${cls ? '<span class="dot" style="--lvl: currentColor"></span>' : ''}${esc(t)}</span>`).join('');
     if (s.status.error) setLive('error', 'Backend error');
@@ -144,7 +147,8 @@ function renderDevices() {
       ${top ? `<div class="card-finding ${esc(top.level)}"><span class="dot"></span>${esc(top.message)}</div>` : ''}
       ${(d.kinds || []).length ? `<div class="chips">${kindChips(d.kinds)}</div>` : ''}
       <div class="card-foot">
-        <span class="meta">${esc(d.speed || 'speed unknown')}</span>
+        ${scanningFor(d.fingerprint) ? `<span class="card-scan"><span class="spinner"></span>Deep scan ${esc(scanningFor(d.fingerprint).progress.pass)}/${esc(scanningFor(d.fingerprint).progress.of)}</span>`
+          : `<span class="meta">${esc(d.speed || 'speed unknown')}</span>`}
         <span class="mono">${esc(d.location)}</span>
       </div>
     </button>`;
@@ -269,6 +273,7 @@ function copyBtn(value) {
 }
 function openDrawer(d) {
   if (!d) return;
+  state.incidentId = null;
   state.drawerId = d.id;
   state.drawerDev = d;
   renderDrawer(d);
@@ -278,6 +283,7 @@ function openDrawer(d) {
 }
 function closeDrawer() {
   state.drawerId = null;
+  state.incidentId = null;
   $('drawer').classList.remove('open');
   $('backdrop').classList.remove('open');
   $('drawer').setAttribute('aria-hidden', 'true');
@@ -312,7 +318,9 @@ function renderDrawer(d) {
     </section>
 
     <div class="actions">
-      ${d.fingerprint ? `<button class="btn ${d.trusted ? '' : 'primary'}" id="drawer-trust">${icon(d.trusted ? 'x' : 'shield-check')}${d.trusted ? 'Remove trust' : 'Trust this device'}</button>` : ''}
+      ${live ? `<button class="btn primary" id="drawer-deep" ${scanningFor(d.fingerprint) ? 'disabled' : ''}>${scanningFor(d.fingerprint) ? '<span class="spinner"></span>Deep scan running' : icon('activity') + 'Deep scan (60s)'}</button>` : ''}
+      ${latestIncident(d.fingerprint) ? `<button class="btn" id="drawer-incident">${icon('alert')}View incident</button>` : ''}
+      ${d.fingerprint ? `<button class="btn" id="drawer-trust">${icon(d.trusted ? 'x' : 'shield-check')}${d.trusted ? 'Remove trust' : 'Trust'}</button>` : ''}
       <button class="btn" id="drawer-probe">${icon('scan')}Probe descriptors</button>
     </div>
     ${probe ? `<section class="box"><h3>libusb probe</h3><pre>${esc(probe)}</pre></section>` : ''}
@@ -353,6 +361,13 @@ function renderDrawer(d) {
   $('drawer-close').onclick = closeDrawer;
   const trust = $('drawer-trust');
   if (trust) trust.onclick = () => setTrusted(d.fingerprint, !d.trusted);
+  const deep = $('drawer-deep');
+  if (deep) deep.onclick = async () => {
+    try { openIncident((await postJSON('/api/scan', { device_id: d.id })).incident); }
+    catch (err) { toast({ level: 'high', title: 'Could not start scan', body: err.message, iconName: 'alert' }); }
+  };
+  const incBtn = $('drawer-incident');
+  if (incBtn) incBtn.onclick = () => openIncident(latestIncident(d.fingerprint).id);
   $('drawer-probe').onclick = async () => {
     state.probes[d.id] = 'Probing…';
     renderDrawer(d);
@@ -373,6 +388,273 @@ $('drawer').addEventListener('click', async (e) => {
   } catch (err) { /* clipboard blocked */ }
 });
 $('backdrop').onclick = closeDrawer;
+
+// ── incidents ─────────────────────────────────────────────────────────
+function scanningFor(fp) { return state.incidents.find((i) => i.status === 'scanning' && i.fingerprint === fp); }
+function latestIncident(fp) { return state.incidents.find((i) => i.fingerprint === fp); }
+function statusChip(i) {
+  if (i.status === 'scanning') return `<span class="status-chip scanning"><span class="spinner"></span>Scanning ${esc(i.progress.pass)}/${esc(i.progress.of)}</span>`;
+  const label = { done: 'Scan complete', error: 'Scan failed', interrupted: 'Interrupted' }[i.status] || i.status;
+  return `<span class="status-chip ${esc(i.status)}">${esc(label)}</span>`;
+}
+function progressBar(p) {
+  return `<div class="progress"><span style="width:${Math.round(100 * p.pass / Math.max(p.of, 1))}%"></span></div>`;
+}
+async function loadIncidents() {
+  state.incidents = await api('/api/incidents');
+  renderIncidents();
+}
+function upsertIncident(s) {
+  const i = state.incidents.findIndex((x) => x.id === s.id);
+  if (i >= 0) state.incidents[i] = s; else state.incidents.unshift(s);
+}
+function renderIncidents() {
+  const all = state.incidents;
+  $('count-incidents').textContent = all.length;
+  $('scan-dot').hidden = !all.some((i) => i.status === 'scanning');
+  const list = all.filter((i) => matches({ ...i, serial: '', location: i.id }) ||
+    (state.query && (i.summary || '').toLowerCase().includes(state.query)));
+  $('incidents-empty').hidden = list.length > 0;
+  $('incident-list').className = 'inc-list';
+  $('incident-list').innerHTML = list.map((i) => {
+    const shown = notable(i.findings).sort((a, b) => lvl(b.level) - lvl(a.level)).slice(0, 4);
+    const done = i.status !== 'scanning' && i.report_path;
+    return `
+    <div class="inc ${esc(i.level)}" data-id="${esc(i.id)}">
+      <span class="tl-icon ${lvl(i.level) >= 2 ? esc(i.level) : 'removed'}">${icon(lvl(i.level) >= 2 ? 'alert' : 'shield-check')}</span>
+      <div class="tl-main">
+        <div class="tl-head">
+          <strong>${esc(i.name)}</strong>
+          <span class="mono muted">${esc(vidpid(i))}</span>
+          <span class="badge ${esc(i.level)}">${esc(i.level)}</span>
+          ${statusChip(i)}
+        </div>
+        <div class="tl-sub">${esc(fmtWhen(i.created))} · ${i.reason === 'manual' ? 'manual scan' : 'automatic'} · <span class="mono">${esc(i.id)}</span>${i.related ? ` · +${esc(i.related)} related event(s)` : ''}</div>
+        ${i.status === 'scanning' ? progressBar(i.progress) : ''}
+        ${shown.length ? `<ul class="tl-findings">${shown.map((f) => `<li class="${esc(f.level)}"><span class="dot"></span>${esc(f.message)}</li>`).join('')}</ul>` : ''}
+        <div class="inc-summary">${esc(i.summary)}</div>
+      </div>
+      <div class="inc-actions">
+        ${done ? `<a class="btn" href="/api/incidents/${encodeURIComponent(i.id)}/report.txt" title="Readable report">${icon('download')}TXT</a>
+        <a class="btn" href="/api/incidents/${encodeURIComponent(i.id)}/report.json" title="Full evidence">${icon('download')}JSON</a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function fmtWhen(iso) { return `${iso.replace('T', ' ').slice(0, 19)} (${rel(iso)})`; }
+$('incident-list').addEventListener('click', (e) => {
+  if (e.target.closest('a')) return;
+  const row = e.target.closest('.inc');
+  if (row) openIncident(row.dataset.id);
+});
+
+async function openIncident(id) {
+  state.drawerId = null;
+  state.incidentId = id;
+  $('drawer').classList.add('open');
+  $('backdrop').classList.add('open');
+  $('drawer').setAttribute('aria-hidden', 'false');
+  const s = state.incidents.find((i) => i.id === id);
+  $('drawer-head').innerHTML = incidentHead(s || { id, name: 'Incident', level: 'info' });
+  $('drawer-close').onclick = closeDrawer;
+  $('drawer-body').innerHTML = '<div class="muted-block"><span class="spinner"></span> Loading report…</div>';
+  await fetchIncident();
+}
+async function fetchIncident() {
+  const id = state.incidentId;
+  if (!id) return;
+  try {
+    const r = await api('/api/incidents/' + encodeURIComponent(id));
+    if (state.incidentId === id) renderIncident(r);
+  } catch (e) {
+    $('drawer-body').innerHTML = `<div class="muted-block">Could not load report: ${esc(e.message)}</div>`;
+  }
+}
+function scheduleIncidentRefresh() {
+  if (state.incidentTimer) return;
+  state.incidentTimer = setTimeout(() => { state.incidentTimer = null; fetchIncident(); }, 700);
+}
+function incidentHead(r) {
+  const d = r.device || r;
+  return `
+    <span class="dev-icon ${lvl(r.level) >= 1 ? esc(r.level) : ''}">${icon(lvl(r.level) >= 2 ? 'alert' : 'shield-check')}</span>
+    <div class="grow">
+      <h2>${esc(d.name)}</h2>
+      <div class="card-sub">Incident <span class="mono">${esc(r.id)}</span></div>
+    </div>
+    <button class="btn-icon ghost" id="drawer-close" title="Close (Esc)">${icon('x')}</button>`;
+}
+function uniqueHid(r) {
+  const seen = new Set();
+  const out = [];
+  for (const p of r.passes || []) {
+    for (const h of (p.evidence || {}).hid || []) {
+      if (!seen.has(h.descriptor_hex)) { seen.add(h.descriptor_hex); out.push(h); }
+    }
+  }
+  return out;
+}
+function show(v) {
+  if (v == null) return '-';
+  if (Array.isArray(v)) return v.join(', ') || '-';
+  if (typeof v === 'object') return v.error ? 'error: ' + v.error : Object.entries(v).map(([k, x]) => `${k} ${x}`).join(', ');
+  return String(v);
+}
+function renderIncident(r) {
+  $('drawer-head').innerHTML = incidentHead(r);
+  $('drawer-close').onclick = closeDrawer;
+  const d = r.device;
+  const findings = [...(r.all_findings || [])].sort((a, b) => lvl(b.level) - lvl(a.level));
+  const passes = r.passes || [];
+  const ev0 = (passes.find((p) => p.evidence && !p.evidence.error) || {}).evidence || {};
+  const base = r.baseline || {};
+  const last = ([...passes].reverse().find((p) => p.context) || {}).context || {};
+  const hids = uniqueHid(r);
+  const procs = r.new_processes || [];
+  const done = r.status !== 'scanning';
+
+  const sections = [];
+  sections.push(`
+    <section class="box ${lvl(r.level) >= 2 ? 'alarm ' + esc(r.level) : ''}">
+      <h3>Verdict</h3>
+      <div class="assess"><span class="badge ${esc(r.level)}">${esc(r.level)}</span>${statusChip(r)}</div>
+      ${r.status === 'scanning' ? progressBar(r.progress) : ''}
+      <p class="inc-summary">${esc(r.summary)}</p>
+      <ul class="findings">${findings.map((f) =>
+        `<li class="${esc(f.level)}"><span class="dot"></span><span>${esc(f.message)}</span><span class="code mono">${esc(f.code)}</span></li>`).join('')}</ul>
+    </section>
+    <div class="actions">
+      ${done && r.report_path ? `<a class="btn" href="/api/incidents/${encodeURIComponent(r.id)}/report.txt">${icon('download')}Report (TXT)</a>
+      <a class="btn" href="/api/incidents/${encodeURIComponent(r.id)}/report.json">${icon('download')}Evidence (JSON)</a>` : ''}
+      ${state.devices[Object.keys(state.devices).find((k) => state.devices[k].fingerprint === d.fingerprint)] && done
+        ? `<button class="btn primary" id="inc-rescan">${icon('activity')}Re-scan now</button>` : ''}
+    </div>`);
+
+  sections.push(`
+    <section class="box">
+      <h3>Device</h3>
+      <dl class="props">
+        <dt>VID:PID</dt><dd><span class="mono">${esc(vidpid(d))}</span>${copyBtn(vidpid(d))}</dd>
+        <dt>Manufacturer</dt><dd>${esc(d.manufacturer || '-')}</dd>
+        <dt>Serial</dt><dd><span class="mono">${esc(d.serial || '-')}</span></dd>
+        <dt>Type</dt><dd><div class="chips">${kindChips(d.kinds) || '-'}</div></dd>
+        <dt>Location</dt><dd><span class="mono">${esc(d.location)}</span></dd>
+        <dt>Trigger</dt><dd>${esc(r.reason === 'manual' ? 'manual scan' : `${r.trigger.type} event (${r.trigger.level})`)} · ${esc(fmtWhen(r.created))}</dd>
+        ${(r.related_events || []).length ? `<dt>Related</dt><dd>${esc(r.related_events.length)} more event(s) during the scan</dd>` : ''}
+      </dl>
+    </section>`);
+
+  sections.push(`
+    <section class="box">
+      <h3>Observation timeline</h3>
+      <div class="sub">Device state at each pass after the trigger</div>
+      <div class="passes">${passes.map((p) => {
+        const e = p.evidence || {};
+        const bits = [];
+        if (e.drivers) bits.push(`${e.drivers.length} drivers`);
+        if (e.hid && e.hid.length) bits.push(`${e.hid.length} HID`);
+        if (e.disks && e.disks.length) bits.push(`${e.disks.length} disk`);
+        if (e.network_interfaces && e.network_interfaces.length) bits.push('net ' + e.network_interfaces.map((i) => i.bsd).join(','));
+        if (e.error) bits.push('error: ' + e.error);
+        return `<div class="pass"><span class="mono">+${esc(p.offset)}s</span><span class="state ${esc(p.state)}">${esc(p.state)}</span>
+          <span>${esc(bits.join(' · ') || '-')}${(p.changes || []).map((c) => `<span class="change">${esc(c.field)}: ${esc(show(c.before))} → ${esc(show(c.after))}</span>`).join('')}</span></div>`;
+      }).join('') || '<span class="muted">Waiting for first pass…</span>'}</div>
+    </section>`);
+
+  if (hids.length) {
+    sections.push(`
+    <section class="box">
+      <h3>HID capabilities</h3>
+      ${hids.map((h) => {
+        const c = h.decoded;
+        const cap = (on, label, warn) => `<span class="cap ${on ? (warn ? 'warn' : 'on') : ''}">${on ? '' : 'no '}${label}</span>`;
+        return `<div style="margin-bottom:12px">
+          <strong>${esc(c.application_collections.join(', ') || 'No application collections')}</strong>
+          <div class="cap-chips">${cap(c.can_type, 'typing', true)}${cap(c.can_point, 'pointing')}${cap(c.system_control, 'power keys', true)}${cap(c.consumer_control, 'media keys')}${cap(c.vendor_pages.length, 'vendor channel ' + c.vendor_pages.join(','), true)}</div>
+          <div class="sub">${esc(c.inputs)} input / ${esc(c.outputs)} output / ${esc(c.features)} feature items · report IDs ${esc(show(c.report_ids))}</div>
+          <details><summary>Report descriptor (${h.descriptor_hex.length / 2} bytes)</summary><pre>${esc(h.descriptor_hex.match(/.{1,2}/g).join(' '))}</pre></details>
+        </div>`;
+      }).join('')}
+    </section>`);
+  }
+
+  if (r.input_activity) {
+    const ia = r.input_activity;
+    sections.push(`
+    <section class="box">
+      <h3>Input activity</h3>
+      <div class="kv">
+        <span class="k">Idle before</span><span>${esc(ia.idle_before_s)} s</span>
+        <span class="k">First input</span><span class="${ia.first_input_after_connect_s != null ? 'changed' : ''}">${ia.first_input_after_connect_s != null ? esc(ia.first_input_after_connect_s) + ' s after connect' : 'none observed'}</span>
+      </div>
+    </section>`);
+  }
+
+  sections.push(`
+    <section class="box">
+      <h3>Processes started (${procs.length})</h3>
+      <div class="sub">Processes that appeared after the trigger. Shell and scripting tools are highlighted.</div>
+      ${procs.length ? [...procs].sort((a, b) => b.suspicious - a.suspicious || a.offset - b.offset).map((p) => `
+        <div class="proc ${p.suspicious ? 'sus' : ''}"><span class="mono">${p.offset >= 0 ? '+' : ''}${esc(p.offset)}s</span>
+          <div><strong>${esc(p.name)}</strong> <span class="muted mono">pid ${esc(p.pid)} ← ${esc(p.ppid)}</span>
+          <div class="cmd" title="${esc(p.command)}">${esc(p.command)}</div></div></div>`).join('') : '<span class="muted">None</span>'}
+    </section>`);
+
+  const row = (k, a, b) => {
+    const changed = JSON.stringify(a) !== JSON.stringify(b) && b !== undefined;
+    return `<span class="k">${k}</span><span>${esc(show(a))}${changed ? `<br><span class="changed">→ ${esc(show(b))}</span>` : ''}</span>`;
+  };
+  sections.push(`
+    <section class="box">
+      <h3>System state: before → after</h3>
+      <div class="kv">
+        ${row('Interfaces', base.interfaces, last.interfaces)}
+        ${row('Default route', base.default_route, last.default_route)}
+        ${row('DNS', base.dns, last.dns)}
+        ${row('Serial ports', base.serial_ports, last.serial_ports)}
+      </div>
+      ${(ev0.network_interfaces || []).map((i) => `<details><summary>Interface ${esc(i.bsd)}</summary><pre>${esc(i.ifconfig || '')}</pre></details>`).join('')}
+    </section>`);
+
+  for (const v of r.storage || []) {
+    sections.push(`
+    <section class="box ${(v.flagged || []).length ? 'alarm medium' : ''}">
+      <h3>Volume ${esc(v.mountpoint)}</h3>
+      <div class="sub">${esc(v.fstype || '')} · ${esc(v.entries || 0)} entries · ${esc(v.total_bytes || 0)} bytes${v.truncated ? ' · truncated' : ''}${v.error ? ' · ' + esc(v.error) : ''}</div>
+      ${(v.flagged || []).map((f) => `<div class="file"><span class="mono">${esc(f.path)}</span><span class="why">${esc(f.reasons.join('; '))}</span></div>
+        ${f.sha256 ? `<div class="sub mono">sha256 ${esc(f.sha256)}</div>` : ''}`).join('') || '<span class="muted">No flagged files</span>'}
+      <details><summary>All files (${(v.tree || []).length})</summary><pre>${esc((v.tree || []).map((e) => `${e.dir ? 'd' : '-'} ${String(e.size ?? '').padStart(11)}  ${e.path}`).join('\n'))}</pre></details>
+    </section>`);
+  }
+
+  if ((ev0.drivers || []).length || (ev0.open_by || []).length) {
+    sections.push(`
+    <section class="box">
+      <h3>Drivers &amp; open handles</h3>
+      ${(ev0.drivers || []).map((x) => `<div class="itf"><span class="n">${esc(x.depth ?? '')}</span><span>${esc(x.class)}</span><span class="mono">${esc(x.bundle)}</span></div>`).join('')}
+      ${(ev0.open_by || []).length ? `<div class="sub" style="margin-top:10px">Opened by: ${esc([...new Set(ev0.open_by.map((o) => o.app))].join(', '))}</div>` : ''}
+    </section>`);
+  }
+
+  if (r.probe) sections.push(`<section class="box"><details><summary>libusb descriptor probe</summary><pre>${esc(JSON.stringify(r.probe, null, 2))}</pre></details></section>`);
+  if (r.system_log) {
+    const lines = Array.isArray(r.system_log) ? r.system_log : [show(r.system_log)];
+    sections.push(`<section class="box"><details><summary>System log (${lines.length} lines)</summary><pre>${esc(lines.join('\n'))}</pre></details></section>`);
+  }
+  if (r.error) sections.push(`<section class="box"><details open><summary>Scan error</summary><pre>${esc(r.error)}</pre></details></section>`);
+
+  const openDetails = [...$('drawer-body').querySelectorAll('details')].map((x) => x.open);
+  const scroll = $('drawer-body').scrollTop;
+  $('drawer-body').innerHTML = sections.join('');
+  $('drawer-body').querySelectorAll('details').forEach((x, i) => { if (openDetails[i]) x.open = true; });
+  $('drawer-body').scrollTop = scroll;
+  const rescan = $('inc-rescan');
+  if (rescan) rescan.onclick = async () => {
+    const dev = Object.values(state.devices).find((x) => x.fingerprint === d.fingerprint);
+    try { openIncident((await postJSON('/api/scan', { device_id: dev.id })).incident); }
+    catch (err) { toast({ level: 'high', title: 'Could not start scan', body: err.message, iconName: 'alert' }); }
+  };
+}
 
 // ── alerts & toasts ───────────────────────────────────────────────────
 function toast({ level = 'info', title, body, iconName, type, onClick }) {
@@ -445,7 +727,7 @@ setNotify(store.get('ub-notify') === '1');
 function showTab(tab) {
   state.tab = tab;
   document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-  for (const t of ['devices', 'activity', 'known']) $('tab-' + t).hidden = t !== tab;
+  for (const t of TABS) $('tab-' + t).hidden = t !== tab;
   $('tools-activity').hidden = tab !== 'activity';
   if (tab === 'known') loadKnown().catch(() => {});
   store.set('ub-tab', tab);
@@ -454,7 +736,7 @@ document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => showT
 
 $('search').addEventListener('input', (e) => {
   state.query = e.target.value.trim().toLowerCase();
-  renderDevices(); renderActivity(); renderKnown();
+  renderDevices(); renderActivity(); renderKnown(); renderIncidents();
 });
 document.addEventListener('keydown', (e) => {
   const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
@@ -465,9 +747,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === '/') { e.preventDefault(); $('search').focus(); }
-  else if (e.key === '1') showTab('devices');
-  else if (e.key === '2') showTab('activity');
-  else if (e.key === '3') showTab('known');
+  else if (/^[1-4]$/.test(e.key)) showTab(TABS[Number(e.key) - 1]);
 });
 
 // ── live stream ───────────────────────────────────────────────────────
@@ -502,6 +782,29 @@ function handle(ev) {
       toast({ level: 'info', type: 'connected', iconName: ev.trusted ? 'shield-check' : 'x',
         title: ev.trusted ? 'Marked as trusted' : 'Trust removed' });
       break;
+    case 'incident': {
+      const i = ev.incident;
+      const before = state.incidents.find((x) => x.id === i.id);
+      upsertIncident(i);
+      renderIncidents(); renderDevices();
+      if (state.incidentId === i.id) scheduleIncidentRefresh();
+      if (!before) {
+        toast({ level: 'info', type: 'connected', iconName: 'activity', title: `Deep scan started: ${i.name}`,
+          body: i.reason === 'manual' ? 'Manual scan · 8 passes over 60s' : 'Suspicious event · 8 passes over 60s', onClick: () => openIncident(i.id) });
+      } else if (before.status === 'scanning' && i.status !== 'scanning') {
+        toast({ level: i.level, type: 'connected', iconName: lvl(i.level) >= 2 ? 'alert' : 'shield-check',
+          title: `Deep scan ${i.status === 'done' ? 'complete' : i.status}: ${i.name}`, body: i.summary, onClick: () => openIncident(i.id) });
+        if (state.drawerId) refreshDrawer(i.fingerprint);
+      }
+      break;
+    }
+    case 'device_update':
+      if (state.devices[ev.device.id]) {
+        state.devices[ev.device.id] = ev.device;
+        renderDevices();
+        refreshDrawer(ev.device.fingerprint);
+      }
+      break;
     case 'status':
       if (ev.status.error) setLive('error', 'Backend error');
       else setLive('live', 'Live');
@@ -519,8 +822,9 @@ function connect() {
   es.onmessage = (e) => handle(JSON.parse(e.data));
 }
 
-setInterval(() => { renderActivity(); if (state.tab === 'known') renderKnown(); }, 30000);
-showTab(['devices', 'activity', 'known'].includes(store.get('ub-tab')) ? store.get('ub-tab') : 'devices');
+setInterval(() => { renderActivity(); renderIncidents(); if (state.tab === 'known') renderKnown(); }, 30000);
+showTab(TABS.includes(store.get('ub-tab')) ? store.get('ub-tab') : 'devices');
 loadHistory().catch(() => {});
 loadKnown().catch(() => {});
+loadIncidents().catch(() => {});
 connect();

@@ -13,8 +13,9 @@ dist/
 venv/
 env/
 
-# Local data (device history can contain serial numbers)
+# Local data (device history, logs and incident reports contain serial numbers, file listings, process lists)
 unblinder.db
+logs/
 *.db-journal
 *.db-wal
 *.db-shm

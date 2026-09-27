@@ -9,14 +9,14 @@ def hexid(value):
     return f"0x{value:04x}" if isinstance(value, int) else "?"
 
 
-def jsonable(obj, depth=0):
+def jsonable(obj, depth=0, max_depth=6):
     """Make plist/sysfs values JSON-safe (bytes, dates, nested containers)."""
-    if depth > 6:
+    if depth > max_depth:
         return str(obj)
     if isinstance(obj, dict):
-        return {str(k): jsonable(v, depth + 1) for k, v in obj.items()}
+        return {str(k): jsonable(v, depth + 1, max_depth) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [jsonable(v, depth + 1) for v in obj]
+        return [jsonable(v, depth + 1, max_depth) for v in obj]
     if isinstance(obj, bytes):
         return obj[:256].hex()
     if isinstance(obj, (_dt.date, _dt.datetime)):

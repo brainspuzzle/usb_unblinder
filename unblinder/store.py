@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS events (
     device TEXT, findings TEXT
 );
 CREATE INDEX IF NOT EXISTS events_time ON events(time);
+CREATE TABLE IF NOT EXISTS incidents (
+    id TEXT PRIMARY KEY,
+    created TEXT, updated TEXT, status TEXT, level TEXT, fingerprint TEXT,
+    summary TEXT, report_path TEXT, data TEXT
+);
+CREATE INDEX IF NOT EXISTS incidents_created ON incidents(created);
 """
 
 
@@ -72,6 +78,35 @@ class Store:
                 "INSERT INTO events (time, type, fingerprint, level, device, findings) VALUES (?, ?, ?, ?, ?, ?)",
                 (ev["time"], ev["type"], dev.get("fingerprint"), ev.get("level", "info"),
                  json.dumps(dev), json.dumps(ev.get("findings", []))))
+
+    def save_incident(self, s):
+        with self.lock, self.db:
+            self.db.execute("""
+                INSERT INTO incidents (id, created, updated, status, level, fingerprint, summary, report_path, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET updated = excluded.updated, status = excluded.status,
+                    level = excluded.level, summary = excluded.summary, report_path = excluded.report_path,
+                    data = excluded.data
+            """, (s["id"], s["created"], s["updated"], s["status"], s["level"], s["fingerprint"],
+                  s["summary"], s.get("report_path"), json.dumps(s)))
+
+    def incidents(self, limit=200):
+        return [json.loads(r["data"]) for r in
+                self._all("SELECT data FROM incidents ORDER BY created DESC LIMIT ?", (limit,))]
+
+    def get_incident(self, incident_id):
+        rows = self._all("SELECT data FROM incidents WHERE id = ?", (incident_id,))
+        return json.loads(rows[0]["data"]) if rows else None
+
+    def mark_interrupted(self):
+        """Scans that were running when the app stopped will never finish."""
+        with self.lock, self.db:
+            rows = self.db.execute("SELECT id, data FROM incidents WHERE status = 'scanning'").fetchall()
+            for r in rows:
+                data = json.loads(r["data"])
+                data.update(status="interrupted", summary="App stopped before the scan finished")
+                self.db.execute("UPDATE incidents SET status = 'interrupted', summary = ?, data = ? WHERE id = ?",
+                                (data["summary"], json.dumps(data), r["id"]))
 
     def recent_events(self, limit=200, min_level=None):
         from .analysis import LEVELS

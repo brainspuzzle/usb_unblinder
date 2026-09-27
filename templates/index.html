@@ -102,6 +102,7 @@
     <nav class="segmented" role="tablist">
       <button class="active" data-tab="devices" role="tab">Devices <span class="count" id="count-devices">0</span></button>
       <button data-tab="activity" role="tab">Activity <span class="count" id="count-activity">0</span></button>
+      <button data-tab="incidents" role="tab">Incidents <span class="count" id="count-incidents">0</span><span class="scan-dot" id="scan-dot" hidden></span></button>
       <button data-tab="known" role="tab">Known <span class="count" id="count-known">0</span></button>
     </nav>
     <div class="section-tools" id="tools-activity" hidden>
@@ -130,6 +131,16 @@
       <svg class="icon"><use href="#i-activity"/></svg>
       <strong>No activity yet</strong>
       <span>Plug or unplug a device and it shows up here instantly.</span>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-incidents" hidden>
+    <p class="panel-note">Every suspicious event is re-scanned in 8 passes over a minute: identity and interface changes, drivers, HID descriptors, volumes, network, processes and input activity. Full reports are saved in <span class="mono" id="logs-path">logs/</span>.</p>
+    <div id="incident-list"></div>
+    <div class="empty" id="incidents-empty" hidden>
+      <svg class="icon"><use href="#i-shield-check"/></svg>
+      <strong>No incidents</strong>
+      <span>Suspicious devices are deep-scanned automatically. You can also start a scan from any device.</span>
     </div>
   </section>
 

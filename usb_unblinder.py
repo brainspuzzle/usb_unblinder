@@ -8,6 +8,11 @@ The OS backend (macOS / Linux / Windows) is picked automatically.
   python3 usb_unblinder.py known        devices ever seen on this computer
   python3 usb_unblinder.py trust FP     mark a device fingerprint as trusted (untrust FP to undo)
   python3 usb_unblinder.py probe VID PID   dump descriptors via libusb (hex ids)
+  python3 usb_unblinder.py scan 046d:c077  deep forensic scan of a connected device (~60s)
+  python3 usb_unblinder.py incidents       list deep-scan incidents
+  python3 usb_unblinder.py incident ID     print a full incident report
+
+Logs: logs/events.jsonl (all), logs/suspicious.jsonl, logs/incidents/<id>.json|.txt
 
 Web UI: python3 app.py
 """
@@ -15,8 +20,9 @@ import argparse
 import json
 import sys
 import time
+from pathlib import Path
 
-from unblinder import DEFAULT_DB, create_monitor
+from unblinder import DEFAULT_DB, DEFAULT_LOGS, create_monitor
 from unblinder.probe import probe
 
 COLORS = {"info": "\033[37m", "low": "\033[36m", "medium": "\033[33m", "high": "\033[1;31m"}
@@ -52,15 +58,31 @@ def print_event(ev):
         print_findings(ev["findings"])
     elif ev["type"] == "status" and ev["status"]["error"]:
         print(f"[{t}] {c('high', 'ERROR')} {ev['status']['error']}")
+    elif ev["type"] == "incident" and ev["incident"]["status"] != "scanning":
+        i = ev["incident"]
+        print(f"[{t}] {c(i['level'], 'DEEP SCAN ' + i['status'].upper())} {i['name']} - {i['summary']}")
+        print(f"      report: {i.get('report_path')}")
+    elif ev["type"] == "incident" and ev["incident"]["progress"]["pass"] == 0:
+        print(f"[{t}] {c('medium', 'DEEP SCAN')} started for {ev['incident']['name']} ({ev['incident']['id']})")
+
+
+def find_device(devices, query):
+    q = query.lower().replace("0x", "")
+    for d in devices:
+        vp = f"{d['vendor_id']}:{d['product_id']}".replace("0x", "")
+        if q in (vp, d.get("fingerprint"), d["id"].lower()) or q in d["name"].lower():
+            return d
+    return None
 
 
 def main():
     ap = argparse.ArgumentParser(description="USB plug/unplug and suspicious behavior monitor")
     ap.add_argument("command", nargs="?", default="watch",
-                    choices=["watch", "list", "known", "trust", "untrust", "probe"])
+                    choices=["watch", "list", "known", "trust", "untrust", "probe", "scan", "incidents", "incident"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--json", action="store_true", help="print events as JSON lines")
     ap.add_argument("--db", default=DEFAULT_DB, help="SQLite history file")
+    ap.add_argument("--logs", default=DEFAULT_LOGS, help="log + incident report directory")
     ap.add_argument("--no-notify", action="store_true", help="disable desktop notifications")
     ap.add_argument("--poll", type=float, help="poll interval in seconds")
     a = ap.parse_args()
@@ -72,7 +94,40 @@ def main():
         print(json.dumps(result, indent=2) if result else "Device not found")
         return
 
-    mon = create_monitor(a.db, notify=not a.no_notify, poll_interval=a.poll)
+    mon = create_monitor(a.db, notify=not a.no_notify, poll_interval=a.poll, logs_dir=a.logs,
+                         forensics=a.command in ("watch", "scan"))
+
+    if a.command == "incidents":
+        for i in mon.store.incidents():
+            print(f"{c(i['level'], i['level'].upper().ljust(6))} {i['id']}  {i['status']:<11} {i['name']}  - {i['summary']}")
+        return
+    if a.command == "incident":
+        if len(a.args) != 1:
+            ap.error("incident needs an incident id (see: incidents)")
+        i = mon.store.get_incident(a.args[0])
+        if not i or not i.get("report_path"):
+            print("Unknown incident or report not written yet")
+            return
+        print(Path(i["report_path"]).with_suffix(".txt").read_text(encoding="utf-8"))
+        return
+    if a.command == "scan":
+        if len(a.args) != 1:
+            ap.error("scan needs a device: VID:PID, fingerprint or part of the name (see: list)")
+        mon.start()
+        while mon.status["state"] != "running":
+            time.sleep(0.2)
+        dev = find_device(mon.current_devices(), a.args[0])
+        if not dev:
+            print("No connected device matches", a.args[0])
+            return
+        mon.listeners.append(print_event)
+        incident_id = mon.scanner.start(dev, "manual")
+        print(f"Deep-scanning {dev['name']} for ~60s (incident {incident_id})…")
+        while (mon.store.get_incident(incident_id) or {}).get("status") == "scanning":
+            time.sleep(1)
+        i = mon.store.get_incident(incident_id)
+        print(Path(i["report_path"]).with_suffix(".txt").read_text(encoding="utf-8"))
+        return
 
     if a.command in ("trust", "untrust"):
         if len(a.args) != 1:

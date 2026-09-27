@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 USB Unblinder web UI.  python3 app.py  ->  http://127.0.0.1:5050
-Options: --port, --host, --no-notify, --poll SECONDS, --db PATH
+Options: --port, --host, --no-notify, --poll SECONDS, --db PATH, --logs DIR
 """
 import argparse
 import csv
@@ -9,10 +9,11 @@ import io
 import json
 import os
 import queue
+from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, render_template, request
 
-from unblinder import DEFAULT_DB, create_monitor
+from unblinder import DEFAULT_DB, DEFAULT_LOGS, create_monitor
 from unblinder.probe import libusb_status, probe
 
 
@@ -45,6 +46,7 @@ def create_app(monitor, host):
                 "notifications": monitor.notifier.method,
                 "probe": {"ok": probe_ok, "message": probe_msg},
                 "screen_lock": info.get("screen_lock_detection", False),
+                "logs": str(monitor.logbook.root) if monitor.logbook else None,
             },
         })
 
@@ -108,6 +110,47 @@ def create_app(monitor, host):
             return jsonify({"error": "device not found through libusb"}), 404
         return jsonify(result)
 
+    @app.route("/api/incidents")
+    def api_incidents():
+        return jsonify(monitor.store.incidents(min(request.args.get("limit", 200, type=int), 2000)))
+
+    def full_report(incident_id):
+        live = monitor.scanner.report(incident_id) if monitor.scanner else None
+        if live:
+            for _ in range(5):  # the scan thread mutates it concurrently
+                try:
+                    return json.loads(json.dumps(live))
+                except RuntimeError:
+                    continue
+        summary = monitor.store.get_incident(incident_id)
+        if not summary:
+            abort(404)
+        if summary.get("report_path") and Path(summary["report_path"]).exists():
+            return json.loads(Path(summary["report_path"]).read_text(encoding="utf-8"))
+        return summary
+
+    @app.route("/api/incidents/<incident_id>")
+    def api_incident(incident_id):
+        return jsonify(full_report(incident_id))
+
+    @app.route("/api/incidents/<incident_id>/report.<fmt>")
+    def api_incident_file(incident_id, fmt):
+        summary = monitor.store.get_incident(incident_id)
+        if fmt not in ("json", "txt") or not summary or not summary.get("report_path"):
+            abort(404)
+        path = Path(summary["report_path"]).with_suffix("." + fmt)
+        if not path.exists():
+            abort(404)
+        return Response(path.read_bytes(), mimetype="application/json" if fmt == "json" else "text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename=usb_incident_{incident_id}.{fmt}"})
+
+    @app.route("/api/scan", methods=["POST"])
+    def api_scan():
+        dev = next((d for d in monitor.current_devices() if d["id"] == request.get_json().get("device_id")), None)
+        if not dev:
+            return jsonify({"error": "device is not connected"}), 404
+        return jsonify({"incident": monitor.scanner.start(dev, "manual")})
+
     @app.route("/api/export.json")
     def export_json():
         data = json.dumps(monitor.store.recent_events(100000), indent=2)
@@ -138,13 +181,15 @@ def main():
     # 5000 is taken by macOS AirPlay Receiver
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5050)))
     ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--logs", default=DEFAULT_LOGS, help="log + incident report directory")
     ap.add_argument("--poll", type=float, help="poll interval in seconds")
     ap.add_argument("--no-notify", action="store_true", help="disable desktop notifications")
     a = ap.parse_args()
 
-    monitor = create_monitor(a.db, notify=not a.no_notify, poll_interval=a.poll)
+    monitor = create_monitor(a.db, notify=not a.no_notify, poll_interval=a.poll, logs_dir=a.logs)
     info = monitor.backend.info()
     print(f" * USB Unblinder on {info['os']} - backend: {info['backend']}")
+    print(f" * Logs + incident reports: {monitor.logbook.root}")
     print(f" * Open http://{a.host}:{a.port}")
     monitor.start()
     create_app(monitor, a.host).run(host=a.host, port=a.port, debug=False, threaded=True)
