@@ -4,83 +4,159 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>USB Unblinder</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Ccircle cx='12' cy='11' r='2.5'/%3E%3C/svg%3E">
+<script>
+  try { const t = localStorage.getItem('ub-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header>
-  <div class="brand">
-    <span class="dot" id="status-dot"></span>
-    <h1>USB Unblinder</h1>
-    <span class="muted" id="status-label">connecting…</span>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M7.5 11.5s1.8-3 4.5-3 4.5 3 4.5 3-1.8 3-4.5 3-4.5-3-4.5-3z"/><circle cx="12" cy="11.5" r="1.2"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><path d="M12 3v14"/><circle cx="12" cy="19.5" r="2"/><path d="M10 6l2-3 2 3"/><path d="M12 14l-4-3V8.5"/><path d="M12 12l4-3V7.5"/><rect x="7" y="6.5" width="2" height="2"/><circle cx="16" cy="6.5" r="1"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></symbol>
+    <symbol id="i-storage" viewBox="0 0 24 24"><rect x="3" y="12" width="18" height="8" rx="2"/><path d="M5.5 12 8 5h8l2.5 7"/><path d="M7 16h.01M11 16h.01"/></symbol>
+    <symbol id="i-hub" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="3" r="1"/><circle cx="12" cy="21" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="21" cy="12" r="1"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4M5 16v-2h14v2"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="m16 10 5-3v10l-5-3"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+    <symbol id="i-audio" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></symbol>
+    <symbol id="i-serial" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-display" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-hid" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="6"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></symbol>
+    <symbol id="i-unplug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/><path d="m3 3 18 18"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 9.3-5M18 8c0 7 3 9 3 9H9"/><path d="M6.3 11C5.8 15.5 3 17 3 17h11"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+    <symbol id="i-auto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark"><svg class="icon"><use href="#i-logo"/></svg></span>
+      <div>
+        <h1>USB Unblinder</h1>
+        <p class="brand-sub">USB activity &amp; threat monitor</p>
+      </div>
+    </div>
+    <div class="live-pill" id="live-pill"><span class="pulse"></span><span id="status-label">Connecting</span></div>
+    <label class="search">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <input id="search" type="search" placeholder="Search name, VID:PID, serial…" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </label>
+    <div class="topbar-actions">
+      <button class="btn-icon" id="notify-toggle" title="Browser notifications for warnings"><svg class="icon"><use href="#i-bell-off"/></svg></button>
+      <button class="btn-icon" id="theme-toggle" title="Theme: auto"><svg class="icon"><use href="#i-auto"/></svg></button>
+    </div>
   </div>
-  <div class="chips" id="platform-chips"></div>
-  <button class="ghost" id="notify-toggle" title="Browser notifications for medium/high alerts">Browser alerts: off</button>
 </header>
 
-<div id="alert-banner" class="banner" hidden>
-  <div><strong id="alert-title"></strong><div id="alert-body"></div></div>
-  <button class="ghost" id="alert-dismiss">Dismiss</button>
-</div>
-
-<section class="stats">
-  <div class="stat"><span id="stat-devices">0</span><label>Connected now</label></div>
-  <div class="stat"><span id="stat-events">0</span><label>Plug / unplug events</label></div>
-  <div class="stat warn"><span id="stat-medium">0</span><label>Medium alerts</label></div>
-  <div class="stat bad"><span id="stat-high">0</span><label>High alerts</label></div>
-</section>
-
-<nav class="tabs">
-  <button class="tab active" data-tab="devices">Devices</button>
-  <button class="tab" data-tab="events">Events</button>
-  <button class="tab" data-tab="known">Known devices</button>
-</nav>
-
-<main>
-  <section class="tab-panel" id="tab-devices">
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th></th><th>Device</th><th>VID:PID</th><th>Manufacturer</th><th>Serial</th><th>Speed</th><th>Location</th></tr></thead>
-        <tbody id="device-rows"></tbody>
-      </table>
+<div class="container">
+  <div id="alert-banner" class="banner" hidden>
+    <span class="banner-icon"><svg class="icon"><use href="#i-alert"/></svg></span>
+    <div class="banner-text">
+      <strong id="alert-title"></strong>
+      <p id="alert-body"></p>
     </div>
-    <p class="empty" id="devices-empty" hidden>No USB devices detected.</p>
+    <button class="btn" id="alert-view">View device</button>
+    <button class="btn-icon ghost" id="alert-dismiss" title="Dismiss"><svg class="icon"><use href="#i-x"/></svg></button>
+  </div>
+
+  <section class="stats">
+    <div class="stat">
+      <span class="stat-icon accent"><svg class="icon"><use href="#i-usb"/></svg></span>
+      <div><div class="stat-value" id="stat-devices">0</div><div class="stat-label">Connected now</div><div class="stat-hint" id="hint-devices">&nbsp;</div></div>
+    </div>
+    <div class="stat">
+      <span class="stat-icon ok"><svg class="icon"><use href="#i-activity"/></svg></span>
+      <div><div class="stat-value" id="stat-events">0</div><div class="stat-label">Plug / unplug events</div><div class="stat-hint" id="hint-events">&nbsp;</div></div>
+    </div>
+    <div class="stat">
+      <span class="stat-icon medium"><svg class="icon"><use href="#i-alert"/></svg></span>
+      <div><div class="stat-value" id="stat-medium">0</div><div class="stat-label">Warnings</div><div class="stat-hint">medium level</div></div>
+    </div>
+    <div class="stat">
+      <span class="stat-icon high"><svg class="icon"><use href="#i-shield-check"/></svg></span>
+      <div><div class="stat-value" id="stat-high">0</div><div class="stat-label">High alerts</div><div class="stat-hint" id="hint-high">&nbsp;</div></div>
+    </div>
   </section>
 
-  <section class="tab-panel" id="tab-events" hidden>
-    <div class="toolbar">
-      <select id="event-filter">
-        <option value="info">All events</option>
-        <option value="low">Low and above</option>
-        <option value="medium">Medium and above</option>
-        <option value="high">High only</option>
-      </select>
-      <span class="spacer"></span>
-      <a class="button ghost" href="/api/export.csv">Export CSV</a>
-      <a class="button ghost" href="/api/export.json">Export JSON</a>
+  <div class="section-bar">
+    <nav class="segmented" role="tablist">
+      <button class="active" data-tab="devices" role="tab">Devices <span class="count" id="count-devices">0</span></button>
+      <button data-tab="activity" role="tab">Activity <span class="count" id="count-activity">0</span></button>
+      <button data-tab="known" role="tab">Known <span class="count" id="count-known">0</span></button>
+    </nav>
+    <div class="section-tools" id="tools-activity" hidden>
+      <nav class="segmented small" id="level-filter">
+        <button class="active" data-level="info">All</button>
+        <button data-level="medium">Warnings</button>
+        <button data-level="high">High</button>
+      </nav>
+      <a class="btn" href="/api/export.csv"><svg class="icon"><use href="#i-download"/></svg>CSV</a>
+      <a class="btn" href="/api/export.json"><svg class="icon"><use href="#i-download"/></svg>JSON</a>
     </div>
-    <div id="event-list"></div>
-    <p class="empty" id="events-empty" hidden>No events yet - plug or unplug something.</p>
+  </div>
+
+  <section class="panel" id="tab-devices">
+    <div class="grid" id="device-grid"></div>
+    <div class="empty" id="devices-empty" hidden>
+      <svg class="icon"><use href="#i-usb"/></svg>
+      <strong>No devices</strong>
+      <span id="devices-empty-hint">Nothing is plugged in right now.</span>
+    </div>
   </section>
 
-  <section class="tab-panel" id="tab-known" hidden>
-    <p class="muted small">Every device ever seen on this computer. Trusted devices no longer raise device-type alerts (behavior alerts like reconnect loops still fire).</p>
-    <div class="table-wrap">
+  <section class="panel" id="tab-activity" hidden>
+    <div id="timeline"></div>
+    <div class="empty" id="activity-empty" hidden>
+      <svg class="icon"><use href="#i-activity"/></svg>
+      <strong>No activity yet</strong>
+      <span>Plug or unplug a device and it shows up here instantly.</span>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-known" hidden>
+    <p class="panel-note">Every device ever seen on this computer. Trusted devices stop raising device-type alerts; behavior alerts (reconnect loops, identity changes) still fire.</p>
+    <div class="table-card">
       <table>
-        <thead><tr><th>Trusted</th><th>Device</th><th>VID:PID</th><th>Serial</th><th>Type</th><th>First seen</th><th>Last seen</th><th>Times</th></tr></thead>
+        <thead><tr><th>Device</th><th>VID:PID</th><th>Serial</th><th>Type</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Trusted</th></tr></thead>
         <tbody id="known-rows"></tbody>
       </table>
     </div>
+    <div class="empty" id="known-empty" hidden>
+      <svg class="icon"><use href="#i-scan"/></svg>
+      <strong>No matches</strong>
+    </div>
   </section>
-</main>
+</div>
 
-<aside id="drawer" hidden>
-  <div class="drawer-head">
-    <h2 id="drawer-title"></h2>
-    <button class="ghost" id="drawer-close">✕</button>
-  </div>
-  <div id="drawer-body"></div>
+<footer class="sysinfo" id="sysinfo"></footer>
+
+<div class="backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head" id="drawer-head"></div>
+  <div class="drawer-body" id="drawer-body"></div>
 </aside>
+
+<div class="toasts" id="toasts"></div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
