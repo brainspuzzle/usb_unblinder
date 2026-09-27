@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USB Unblinder</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="dot" id="status-dot"></span>
+    <h1>USB Unblinder</h1>
+    <span class="muted" id="status-label">connecting…</span>
+  </div>
+  <div class="chips" id="platform-chips"></div>
+  <button class="ghost" id="notify-toggle" title="Browser notifications for medium/high alerts">Browser alerts: off</button>
+</header>
+
+<div id="alert-banner" class="banner" hidden>
+  <div><strong id="alert-title"></strong><div id="alert-body"></div></div>
+  <button class="ghost" id="alert-dismiss">Dismiss</button>
+</div>
+
+<section class="stats">
+  <div class="stat"><span id="stat-devices">0</span><label>Connected now</label></div>
+  <div class="stat"><span id="stat-events">0</span><label>Plug / unplug events</label></div>
+  <div class="stat warn"><span id="stat-medium">0</span><label>Medium alerts</label></div>
+  <div class="stat bad"><span id="stat-high">0</span><label>High alerts</label></div>
+</section>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="devices">Devices</button>
+  <button class="tab" data-tab="events">Events</button>
+  <button class="tab" data-tab="known">Known devices</button>
+</nav>
+
+<main>
+  <section class="tab-panel" id="tab-devices">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Device</th><th>VID:PID</th><th>Manufacturer</th><th>Serial</th><th>Speed</th><th>Location</th></tr></thead>
+        <tbody id="device-rows"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="devices-empty" hidden>No USB devices detected.</p>
+  </section>
+
+  <section class="tab-panel" id="tab-events" hidden>
+    <div class="toolbar">
+      <select id="event-filter">
+        <option value="info">All events</option>
+        <option value="low">Low and above</option>
+        <option value="medium">Medium and above</option>
+        <option value="high">High only</option>
+      </select>
+      <span class="spacer"></span>
+      <a class="button ghost" href="/api/export.csv">Export CSV</a>
+      <a class="button ghost" href="/api/export.json">Export JSON</a>
+    </div>
+    <div id="event-list"></div>
+    <p class="empty" id="events-empty" hidden>No events yet - plug or unplug something.</p>
+  </section>
+
+  <section class="tab-panel" id="tab-known" hidden>
+    <p class="muted small">Every device ever seen on this computer. Trusted devices no longer raise device-type alerts (behavior alerts like reconnect loops still fire).</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Trusted</th><th>Device</th><th>VID:PID</th><th>Serial</th><th>Type</th><th>First seen</th><th>Last seen</th><th>Times</th></tr></thead>
+        <tbody id="known-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<aside id="drawer" hidden>
+  <div class="drawer-head">
+    <h2 id="drawer-title"></h2>
+    <button class="ghost" id="drawer-close">✕</button>
+  </div>
+  <div id="drawer-body"></div>
+</aside>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
