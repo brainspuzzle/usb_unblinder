@@ -103,6 +103,7 @@
       <button class="active" data-tab="devices" role="tab">Devices <span class="count" id="count-devices">0</span></button>
       <button data-tab="activity" role="tab">Activity <span class="count" id="count-activity">0</span></button>
       <button data-tab="incidents" role="tab">Incidents <span class="count" id="count-incidents">0</span><span class="scan-dot" id="scan-dot" hidden></span></button>
+      <button data-tab="sessions" role="tab">Sessions</button>
       <button data-tab="known" role="tab">Known <span class="count" id="count-known">0</span></button>
     </nav>
     <div class="section-tools" id="tools-activity" hidden>
@@ -144,6 +145,30 @@
     </div>
   </section>
 
+  <section class="panel" id="tab-sessions" hidden>
+    <p class="panel-note">Continuous observations · system activity is correlated in time, not proof of USB causation. Polling may miss brief events. Retention: 7 days / 100,000 observations.</p>
+    <details><summary>Collector health and coverage</summary><pre id="telemetry-health"></pre></details>
+    <div class="section-tools"><select id="session-select"><option value="">Select a session</option></select>
+    <select id="session-category"><option value="">All categories</option><option>usb</option><option>process</option><option>network</option><option>traffic</option><option>file</option><option>persistence</option><option>foreground</option><option>system</option><option>hid</option><option>security</option><option>injection</option></select>
+    <a id="session-json" class="btn">JSON</a><a id="session-txt" class="btn">TXT</a><button id="session-delete" class="btn">Delete completed session</button></div>
+    <details><summary>Observation settings</summary>
+      <label>Poll delay (seconds) <input id="telemetry-interval" type="number" value="2" min="0.5" max="300" step="0.5"></label>
+      <label>After disconnect (seconds) <input id="telemetry-grace" type="number" value="60" min="0" max="3600"></label>
+      <p>Watched directories, one absolute path per line. Large trees may hit the scan limit.</p>
+      <textarea id="telemetry-roots" rows="4" style="width:100%"></textarea>
+      <button id="telemetry-save" class="btn">Save settings</button><span id="telemetry-settings-result"></span>
+    </details>
+    <details><summary>Optional capture controls</summary>
+      <p>HID observes keyboards and mouse buttons across the system. Key codes may contain private input. macOS Input Monitoring permission is required. Security logs may be redacted. Packet capture requires existing capture permissions; this app never runs sudo.</p>
+      <label><input id="capture-keys" type="checkbox"> Record HID key usage codes</label>
+      <div class="section-tools"><button class="btn" data-capture="input/start">Start HID + app focus</button><button class="btn" data-capture="input/stop">Stop HID</button>
+      <button class="btn" data-capture="security/start">Start security log</button><button class="btn" data-capture="security/stop">Stop security log</button></div>
+      <div class="section-tools"><select id="capture-interface"></select><button class="btn" data-capture="packets/start">Start PCAP</button><button class="btn" data-capture="packets/stop">Stop PCAP</button></div>
+      <pre id="capture-status"></pre><div id="capture-files"></div>
+    </details>
+    <div id="session-timeline"></div>
+  </section>
+
   <section class="panel" id="tab-known" hidden>
     <p class="panel-note">Every device ever seen on this computer. Trusted devices stop raising device-type alerts; behavior alerts (reconnect loops, identity changes) still fire.</p>
     <div class="table-card">
@@ -170,5 +195,6 @@
 <div class="toasts" id="toasts"></div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='sessions.js') }}"></script>
 </body>
 </html>

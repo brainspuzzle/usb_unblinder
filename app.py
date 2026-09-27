@@ -9,9 +9,10 @@ import io
 import json
 import os
 import queue
+import subprocess
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 
 from unblinder import DEFAULT_DB, DEFAULT_LOGS, create_monitor
 from unblinder.probe import libusb_status, probe
@@ -49,6 +50,78 @@ def create_app(monitor, host):
                 "logs": str(monitor.logbook.root) if monitor.logbook else None,
             },
         })
+
+    @app.route("/api/capture")
+    def capture_status():
+        result = monitor.capture.status()
+        try:
+            result['interfaces'] = monitor.capture.interfaces()
+        except Exception as e:
+            result['interfaces'] = []
+            result['interface_error'] = str(e)
+        result['files'] = monitor.capture.files()
+        return jsonify(result)
+
+    @app.route("/api/capture/<kind>/<action>", methods=["POST"])
+    def capture_action(kind, action):
+        if kind not in ('input', 'security', 'packets') or action not in ('start', 'stop'):
+            abort(404)
+        try:
+            body = request.get_json()
+            if not isinstance(body, dict): raise ValueError('Expected JSON object')
+            return jsonify(monitor.capture.stop(kind) if action == 'stop' else
+                           monitor.capture.start(kind, body.get('interface'), body.get('keys') is True))
+        except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+            return jsonify(error=str(e)), 400
+
+    @app.route("/api/capture/files/<name>")
+    def capture_file(name):
+        if name not in {f['name'] for f in monitor.capture.files()}:
+            abort(404)
+        return send_from_directory(monitor.capture.root.resolve(), name, as_attachment=True)
+
+    @app.route("/api/telemetry")
+    def telemetry_status():
+        return jsonify(monitor.telemetry.capabilities())
+
+    @app.route("/api/telemetry/settings", methods=["POST"])
+    def telemetry_settings():
+        try:
+            body = request.get_json()
+            if not isinstance(body, dict): raise ValueError('Expected JSON object')
+            return jsonify(monitor.telemetry.configure(body))
+        except (ValueError, TypeError, OSError) as e:
+            return jsonify(error=str(e)), 400
+
+    @app.route("/api/sessions")
+    def sessions():
+        return jsonify(monitor.store.sessions())
+
+    @app.route("/api/sessions/<sid>/events")
+    def session_events(sid):
+        return jsonify(monitor.store.observations(sid, max(0, request.args.get("after", 0, type=int))))
+
+    @app.route("/api/sessions/<sid>/export.<fmt>")
+    def session_export(sid, fmt):
+        if fmt not in ("json", "txt"):
+            abort(404)
+        session = next((s for s in monitor.store.sessions() if s['id'] == sid), None)
+        if not session:
+            abort(404)
+        events = monitor.store.observations(sid, limit=100000)
+        data = {"session": session, "events": events, "capabilities": monitor.telemetry.capabilities()}
+        body = json.dumps(data, indent=2, ensure_ascii=False) if fmt == "json" else "\n".join(
+            f"{e['time']} +{e['elapsed']:.3f}s [{e['level']}] {e['category']}/{e['action']} "
+            f"({e['attribution']}) {json.dumps(e['data'], ensure_ascii=False)}" for e in events)
+        return Response(body, mimetype="application/json" if fmt == "json" else "text/plain",
+                        headers={"Content-Disposition": f"attachment; filename=session_{sid}.{fmt}"})
+
+    @app.route("/api/sessions/<sid>/delete", methods=["POST"])
+    def session_delete(sid):
+        if sid in monitor.telemetry.active:
+            return jsonify(error="Session is still being observed"), 409
+        monitor.store.delete_session(sid)
+        return jsonify(ok=True)
 
     @app.route("/api/devices")
     def api_devices():

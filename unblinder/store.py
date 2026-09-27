@@ -117,3 +117,49 @@ class Store:
         return [{"id": r["id"], "time": r["time"], "type": r["type"], "level": r["level"],
                  "device": json.loads(r["device"]), "findings": json.loads(r["findings"])}
                 for r in rows]
+
+    def init_telemetry(self):
+        with self.lock, self.db:
+            self.db.executescript('''
+                CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, wall REAL, data TEXT);
+                CREATE TABLE IF NOT EXISTS observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, wall REAL, data TEXT);
+                CREATE INDEX IF NOT EXISTS observation_session ON observations(session_id, id);
+                CREATE INDEX IF NOT EXISTS observation_wall ON observations(wall);
+            ''')
+            for row in self.db.execute('SELECT id, data FROM sessions').fetchall():
+                data = json.loads(row['data'])
+                if data['status'] in ('connected', 'disconnected'):
+                    data.update(status='interrupted', ended=now_iso())
+                    self.db.execute('UPDATE sessions SET data=? WHERE id=?', (json.dumps(data), row['id']))
+
+    def save_session(self, data):
+        with self.lock, self.db:
+            self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)',
+                            (data['id'], data['wall'], json.dumps(data)))
+
+    def sessions(self):
+        return [json.loads(r['data']) for r in self._all('SELECT data FROM sessions ORDER BY wall DESC LIMIT 500')]
+
+    def add_observation(self, data):
+        with self.lock, self.db:
+            self.db.execute('INSERT INTO observations(session_id,wall,data) VALUES (?,?,?)',
+                            (data['session_id'], data['wall'], json.dumps(data)))
+
+    def observations(self, sid, after=0, limit=1000):
+        return [{'id': r['id'], **json.loads(r['data'])} for r in self._all(
+            'SELECT id,data FROM observations WHERE session_id=? AND id>? ORDER BY id LIMIT ?',
+            (sid, after, limit))]
+
+    def delete_session(self, sid):
+        with self.lock, self.db:
+            self.db.execute('DELETE FROM observations WHERE session_id=?', (sid,))
+            self.db.execute('DELETE FROM sessions WHERE id=?', (sid,))
+
+    def prune_telemetry(self):
+        import time
+        with self.lock, self.db:
+            self.db.execute('DELETE FROM observations WHERE wall < ?', (time.time() - 7 * 86400,))
+            self.db.execute('DELETE FROM observations WHERE id <= (SELECT MAX(id)-100000 FROM observations)')
+            self.db.execute('DELETE FROM sessions WHERE wall < ? AND id NOT IN (SELECT session_id FROM observations)',
+                            (time.time() - 7 * 86400,))

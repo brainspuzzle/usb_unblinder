@@ -416,3 +416,7 @@ pre { margin: 10px 0 0; padding: 12px; border-radius: 9px; background: var(--sur
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.telemetry-row { padding: 12px; border-bottom: 1px solid var(--border); }
+.telemetry-row summary { cursor: pointer; overflow-wrap: anywhere; }
+#tab-sessions pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; padding: 12px; }
+#tab-sessions select { max-width: 100%; padding: 8px; }

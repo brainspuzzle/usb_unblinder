@@ -21,4 +21,10 @@ def create_monitor(db_path=DEFAULT_DB, notify=True, poll_interval=None, logs_dir
         monitor.scanner = DeepScanner(monitor, monitor.logbook)
         monitor.listeners.append(monitor.logbook.on_event)
         monitor.listeners.append(monitor.scanner.on_event)
+    from .capture import Capture
+    monitor.capture = Capture(logs_dir)
+    from .telemetry import Telemetry
+    monitor.store.init_telemetry()
+    monitor.telemetry = Telemetry(monitor)
+    monitor.listeners.append(monitor.telemetry.on_event)
     return monitor

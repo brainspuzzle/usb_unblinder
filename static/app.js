@@ -14,7 +14,7 @@ const KIND_ICON = [
 ];
 const RISKY_KINDS = new Set(['keyboard', 'network', 'dfu']);
 const THEMES = ['auto', 'light', 'dark'];
-const TABS = ['devices', 'activity', 'incidents', 'known'];
+const TABS = ['devices', 'activity', 'incidents', 'known', 'sessions'];
 
 const state = {
   devices: {}, events: [], known: [], knownLoaded: false,

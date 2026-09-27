@@ -24,6 +24,8 @@ class Monitor:
         self.status = {"state": "starting", "error": None, "started": now_iso(), "last_poll": None}
 
     def start(self):
+        if getattr(self, "telemetry", None):
+            self.telemetry.start()
         threading.Thread(target=self._run, name="usb-monitor", daemon=True).start()
 
     def subscribe(self):
@@ -96,6 +98,20 @@ class Monitor:
         with self.lock:
             removed = [d for i, d in self.devices.items() if i not in snap]
             added = [d for i, d in snap.items() if i not in self.devices]
+
+        # Observe identity/interface changes even when the OS registry ID is stable.
+        identity_fields = ('vendor_id', 'product_id', 'serial', 'name', 'manufacturer', 'interfaces', 'kinds')
+        for device_id, new in snap.items():
+            with self.lock:
+                old = self.devices.get(device_id)
+            if old and any(old.get(k) != new.get(k) for k in identity_fields):
+                new['findings'] = self.analyzer.on_connect(new, baseline=True)
+                new['level'] = max_level(new['findings'])
+                with self.lock:
+                    self.devices[device_id] = new
+                self.emit({'type': 'identity_changed', 'time': now_iso(), 'device': new,
+                           'before': {k: old.get(k) for k in identity_fields}, 'level': 'medium'}, persist=False)
+                self.emit({'type': 'device_update', 'device': new}, persist=False)
 
         for dev in removed:
             findings = self.analyzer.on_remove(dev)

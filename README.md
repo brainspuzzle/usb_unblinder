@@ -159,3 +159,68 @@ templates/, static/     web UI
 ## Requirements
 
 Python 3.10+ and Flask. `pyusb` + libusb are optional (probe only). No root or admin rights are needed.
+
+## Continuous session monitor
+
+The **Sessions** tab records observations throughout a connection and for 60 seconds after removal.
+Devices already attached at startup are labelled `already_present`, not newly connected. A restart
+marks old sessions interrupted. Each observation includes absolute and relative time, source,
+precision and attribution. System-wide activity may appear in several overlapping USB sessions;
+this is temporal correlation, **not proof that a USB device caused it**.
+
+Collectors poll processes (including parent PID and command), visible sockets through `lsof`,
+network configuration, Downloads/Desktop/temp file metadata, LaunchAgents/LaunchDaemons,
+shell startup files, the user's crontab and accessible background-task management files.
+Stable registry IDs are also checked for identity/interface changes. Files are not executed.
+File scans are bounded to 12,000 entries per source; permission errors and scan limits appear
+under **Collector health and coverage**. Partial scans never infer deletions from missing entries.
+Polling misses events that start and end between samples; the interval is a minimum delay after
+collection, not a guarantee of two-second coverage. Renames currently appear as removal/creation.
+Socket records show endpoints and associated sampled processes. Traffic observations show
+interface-wide byte/packet counters and deltas, not per-process byte counts or decrypted traffic. No file-writer attribution.
+
+JSON/TXT session exports and deletion of completed sessions are available in the tab. SQLite
+observations are retained for seven days, with a global 100,000-row limit (older observations
+may therefore be truncated). Exports contain retained observations. Existing incident logs have
+their separate rotation policy. Session deletion does not delete separate incident reports/PCAPs.
+
+### Optional macOS native HID and application focus collector
+
+Build once using the installed Xcode command line tools:
+
+```bash
+swiftc native/observe.swift -o native/observe
+```
+
+In Sessions, expand **Optional capture controls** and start HID observation. macOS must grant
+Input Monitoring to the responsible application. No permissions are granted automatically.
+The helper records keyboard and mouse-button timing, press/release, VID/PID and location ID,
+and foreground application activation. It does not collect window titles or mouse movement.
+Enable **Record HID key usage codes** only when you want individual physical key codes; these
+can expose private input. Codes are HID usages, not translated text. Foreground activation
+works through NSWorkspace; the separate polling fallback requires `pyobjc-framework-Cocoa`.
+HID entries are matched to a connected USB session only when location ID, VID and PID all
+agree; unmatched input is discarded from session history. The native `open_result` and `listen_access` are exposed in health.
+A burst of 20 down events within 0.5 seconds produces an injection heuristic, not a verdict.
+
+### Optional security log and packet capture
+
+The security control starts a filtered macOS unified-log stream for sudo, authd, tccd and
+screencapture. Records can be redacted, missing or denied by macOS. These are raw observations,
+not guaranteed detection of every password prompt, permission change or screen recording.
+Persistence changes likewise are indicators, not proof of malicious installation. Watching
+background-task database files is not a complete structured inventory of login items.
+
+Packet capture uses existing `tcpdump` privileges and only interfaces returned by `tcpdump -D`.
+The app never elevates privileges. Each run rotates three 10 MB PCAP chunks; old completed
+captures are pruned at the next start after seven days or above a 200 MB archive budget.
+Capture controls show process exit codes and stderr, and provide PCAP downloads. Raw USB
+capture is only possible if the OS exposes a suitable capture interface; a missing USB
+interface is not equivalent to an empty USB bus. Encrypted network payloads remain encrypted.
+Capture files and input observations can contain private data. All optional captures are off
+at startup and must be started explicitly; Stop controls terminate their collector processes.
+
+Run regression checks with `python -m unittest discover -s tests -v`.
+
+Observation settings in Sessions persist the poll delay, post-disconnect duration and watched
+directories in `logs/telemetry-settings.json`. Changing directories resets the file baseline.
